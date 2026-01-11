@@ -1,0 +1,105 @@
+{% extends 'base.html' %}
+
+{% block title %}Home - Story Generator{% endblock %}
+
+{% block content %}
+<div class="row">
+    <!-- Story Creation Form -->
+    <div class="col-lg-6 mb-4">
+        <div class="card shadow">
+            <div class="card-header bg-primary text-white">
+                <h5 class="mb-0">Create New Story</h5>
+            </div>
+            <div class="card-body">
+                {% if user.is_authenticated %}
+                    <form method="post" action="{% url 'stories:home' %}">
+                        {% csrf_token %}
+                        <div class="mb-3">
+                            <label for="title" class="form-label">Story Title</label>
+                            <input type="text" class="form-control" id="title" name="title"
+                                   placeholder="Enter a title for your story" required>
+                        </div>
+                        <div class="mb-3">
+                            <label for="premise" class="form-label">Story Premise</label>
+                            <textarea class="form-control" id="premise" name="premise" rows="4"
+                                      placeholder="Describe your story: characters, setting, theme..."
+                                      required></textarea>
+                        </div>
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <label for="language" class="form-label">Language</label>
+                                <select class="form-select" id="language" name="language">
+                                    <option value="ru" selected>Russian</option>
+                                    <option value="en">English</option>
+                                </select>
+                            </div>
+                            <div class="col-md-6 mb-3">
+                                <label for="max_chapters" class="form-label">Max Chapters</label>
+                                <input type="number" class="form-control" id="max_chapters"
+                                       name="max_chapters" value="10" min="1" max="20">
+                            </div>
+                        </div>
+                        <button type="submit" class="btn btn-primary w-100">
+                            Start Story
+                        </button>
+                    </form>
+                {% else %}
+                    <p class="text-center text-muted">
+                        <a href="{% url 'accounts:login' %}">Login</a> or
+                        <a href="{% url 'accounts:register' %}">Register</a>
+                        to create stories.
+                    </p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <!-- User's Stories List -->
+    <div class="col-lg-6">
+        <div class="card shadow">
+            <div class="card-header bg-secondary text-white">
+                <h5 class="mb-0">Your Stories</h5>
+            </div>
+            <div class="card-body">
+                {% if user.is_authenticated %}
+                    {% if stories %}
+                        <div class="list-group">
+                            {% for story in stories %}
+                                <a href="{% url 'stories:story_detail' story.id %}"
+                                   class="list-group-item list-group-item-action">
+                                    <div class="d-flex w-100 justify-content-between">
+                                        <h6 class="mb-1">{{ story.title }}</h6>
+                                        <small>
+                                            {% if story.status == 'in_progress' %}
+                                                <span class="badge bg-warning text-dark">In Progress</span>
+                                            {% elif story.status == 'completed' %}
+                                                <span class="badge bg-success">Completed</span>
+                                            {% else %}
+                                                <span class="badge bg-secondary">Cancelled</span>
+                                            {% endif %}
+                                        </small>
+                                    </div>
+                                    <p class="mb-1 text-truncate small">{{ story.premise }}</p>
+                                    <small class="text-muted">
+                                        {{ story.chapter_count }}/{{ story.max_chapters }} chapters
+                                        &middot;
+                                        {{ story.created_at|date:"M d, Y" }}
+                                    </small>
+                                </a>
+                            {% endfor %}
+                        </div>
+                    {% else %}
+                        <p class="text-center text-muted mb-0">
+                            No stories yet. Create your first story!
+                        </p>
+                    {% endif %}
+                {% else %}
+                    <p class="text-center text-muted mb-0">
+                        Login to see your stories.
+                    </p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
