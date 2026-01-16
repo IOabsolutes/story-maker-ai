@@ -1,3 +1,5 @@
+name: ai_story_maker
+
 services:
   web:
     build: .
