@@ -1,8 +1,16 @@
 """API views for the stories app."""
 
-from rest_framework import generics, permissions
+from typing import Any
+
+from django.conf import settings
+from rest_framework import generics, permissions, status
+from rest_framework.permissions import AllowAny
+from rest_framework.request import Request
+from rest_framework.response import Response
+from rest_framework.views import APIView
 
 from apps.stories.models import Chapter, Story, TaskStatus
+from apps.stories.services import ollama_client
 
 from .serializers import (
     ChapterSerializer,
@@ -72,3 +80,28 @@ class TaskStatusView(generics.RetrieveAPIView):
     def get_queryset(self):
         """Filter task statuses by user ownership."""
         return TaskStatus.objects.filter(story__user=self.request.user)
+
+
+class OllamaHealthView(APIView):
+    """Health check endpoint for Ollama service."""
+
+    permission_classes = [AllowAny]
+
+    def get(self, request: Request) -> Response:
+        """Check Ollama availability."""
+        is_available = ollama_client.is_available()
+
+        if is_available:
+            return Response({
+                "status": "healthy",
+                "ollama_available": True,
+                "model": settings.OLLAMA_MODEL,
+            })
+        return Response(
+            {
+                "status": "unhealthy",
+                "ollama_available": False,
+                "error": "Connection refused",
+            },
+            status=status.HTTP_503_SERVICE_UNAVAILABLE,
+        )

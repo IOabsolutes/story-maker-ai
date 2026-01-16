@@ -1,6 +1,6 @@
 """Story services package."""
 
-from .ollama_client import OllamaClient
+from .ollama_client import OllamaClient, OllamaResponse, ollama_client
 from .prompt_builder import PromptBuilder
 from .story_service import (
     chapter_create,
@@ -13,6 +13,8 @@ from .story_service import (
 
 __all__ = [
     "OllamaClient",
+    "OllamaResponse",
+    "ollama_client",
     "PromptBuilder",
     "story_create",
     "story_complete",

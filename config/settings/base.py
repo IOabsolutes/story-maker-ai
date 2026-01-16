@@ -124,7 +124,13 @@ CELERY_TASK_SERIALIZER = "json"
 CELERY_RESULT_SERIALIZER = "json"
 CELERY_TIMEZONE = TIME_ZONE
 CELERY_TASK_TRACK_STARTED = True
-CELERY_TASK_TIME_LIMIT = 300  # 5 minutes
+CELERY_TASK_TIME_LIMIT = 360  # 6 minutes hard timeout
+CELERY_TASK_SOFT_TIME_LIMIT = 300  # 5 min soft timeout (raises SoftTimeLimitExceeded)
+CELERY_TASK_ACKS_LATE = True  # Acknowledge after execution (idempotent tasks required)
+CELERY_TASK_REJECT_ON_WORKER_LOST = True  # Requeue on worker crash
+CELERY_RESULT_EXPIRES = 3600  # Results stored 1 hour
+CELERY_WORKER_PREFETCH_MULTIPLIER = 1  # One task at a time per worker
+CELERY_WORKER_CANCEL_LONG_RUNNING_TASKS_ON_CONNECTION_LOSS = True  # Cancel on disconnect
 
 # Django REST Framework
 REST_FRAMEWORK = {
