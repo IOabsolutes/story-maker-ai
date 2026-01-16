@@ -33,6 +33,7 @@ INSTALLED_APPS = [
     "rest_framework",
     "django_celery_results",
     # Local apps
+    "common",
     "apps.accounts",
     "apps.stories",
     "apps.api",
@@ -133,6 +134,9 @@ REST_FRAMEWORK = {
     "DEFAULT_PERMISSION_CLASSES": [
         "rest_framework.permissions.IsAuthenticated",
     ],
+    "EXCEPTION_HANDLER": "common.exceptions.custom_exception_handler",
+    "DEFAULT_PAGINATION_CLASS": "common.pagination.StandardPagination",
+    "PAGE_SIZE": 20,
 }
 
 # Ollama Configuration
