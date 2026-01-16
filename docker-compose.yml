@@ -10,6 +10,9 @@ services:
       - .:/app
     env_file:
       - .env
+    environment:
+      - POSTGRES_HOST=db
+      - OLLAMA_HOST=http://ollama:11434
     depends_on:
       db:
         condition: service_healthy
@@ -78,6 +81,9 @@ services:
       - .:/app
     env_file:
       - .env
+    environment:
+      - POSTGRES_HOST=db
+      - OLLAMA_HOST=http://ollama:11434
     depends_on:
       db:
         condition: service_healthy

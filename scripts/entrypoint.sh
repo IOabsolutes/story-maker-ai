@@ -1,11 +1,7 @@
 #!/bin/bash
 set -e
 
-# Wait for database to be ready
-echo "Waiting for database..."
-while ! pg_isready -h db -p 5432 -U "${POSTGRES_USER:-postgres}" > /dev/null 2>&1; do
-    sleep 1
-done
+# Database is already ready (docker compose waits for service_healthy)
 echo "Database is ready!"
 
 # Apply database migrations
