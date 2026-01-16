@@ -136,3 +136,7 @@ celerybeat.pid
 PRD.md
 
 docs/*
+
+# Claude Code
+.claude/
+CLAUDE.md

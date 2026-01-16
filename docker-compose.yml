@@ -21,6 +21,8 @@ services:
       timeout: 10s
       retries: 3
       start_period: 40s
+    networks:
+      - story_network
 
   db:
     image: postgres:16
@@ -36,6 +38,8 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    networks:
+      - story_network
 
   rabbitmq:
     image: rabbitmq:3-management
@@ -50,6 +54,21 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    networks:
+      - story_network
+
+  redis:
+    image: redis:7-alpine
+    container_name: story_redis
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - story_network
 
   celery_worker:
     build: .
@@ -70,6 +89,8 @@ services:
       timeout: 10s
       retries: 3
       start_period: 30s
+    networks:
+      - story_network
 
   ollama:
     image: ollama/ollama
@@ -79,7 +100,7 @@ services:
     volumes:
       - ollama_data:/root/.ollama
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:11434"]
+      test: ["CMD", "ollama", "list"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -88,8 +109,50 @@ services:
       resources:
         limits:
           memory: 4G
+    networks:
+      - story_network
+
+  ollama-init:
+    image: curlimages/curl:latest
+    container_name: story_ollama_init
+    env_file:
+      - .env
+    depends_on:
+      ollama:
+        condition: service_healthy
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        echo "=== Ollama Init Started ==="
+        echo "Target: http://ollama:11434"
+        echo "Model: $${OLLAMA_MODEL:-llama3.2:3b}"
+        echo ""
+        echo "Checking Ollama API..."
+        for i in 1 2 3 4 5 6 7 8 9 10; do
+          if curl -sf "http://ollama:11434/api/tags" > /dev/null 2>&1; then
+            echo "Ollama API is ready!"
+            break
+          fi
+          echo "Attempt $$i: waiting for Ollama..."
+          sleep 3
+        done
+        echo ""
+        echo "Pulling model: $${OLLAMA_MODEL:-llama3.2:3b}..."
+        curl -X POST "http://ollama:11434/api/pull" \
+          -H "Content-Type: application/json" \
+          -d "{\"name\": \"$${OLLAMA_MODEL:-llama3.2:3b}\"}" \
+          --no-buffer
+        echo ""
+        echo "=== Model pull complete ==="
+    restart: "no"
+    networks:
+      - story_network
 
 volumes:
   postgres_data:
   rabbitmq_data:
   ollama_data:
+
+networks:
+  story_network:
+    driver: bridge
