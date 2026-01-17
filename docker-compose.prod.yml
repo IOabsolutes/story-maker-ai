@@ -1,0 +1,188 @@
+name: ai_story_maker_prod
+
+services:
+  nginx:
+    image: nginx:alpine
+    container_name: story_nginx
+    ports:
+      - "80:80"
+    volumes:
+      - ./docker/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - static_volume:/app/staticfiles:ro
+    depends_on:
+      web:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: 64M
+    networks:
+      - story_network
+    restart: unless-stopped
+
+  web:
+    build:
+      context: .
+      dockerfile: docker/django/Dockerfile.prod
+    container_name: story_web_prod
+    expose:
+      - "8000"
+    env_file:
+      - .env.prod
+    environment:
+      - POSTGRES_HOST=db
+      - OLLAMA_HOST=http://ollama:11434
+    depends_on:
+      db:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+    volumes:
+      - static_volume:/app/staticfiles
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - story_network
+    restart: unless-stopped
+
+  celery_worker:
+    build:
+      context: .
+      dockerfile: docker/django/Dockerfile.prod
+    container_name: story_celery_prod
+    command: celery -A config worker -l INFO --concurrency=2
+    env_file:
+      - .env.prod
+    environment:
+      - POSTGRES_HOST=db
+      - OLLAMA_HOST=http://ollama:11434
+    depends_on:
+      db:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+    healthcheck:
+      test: ["CMD", "celery", "-A", "config", "inspect", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    networks:
+      - story_network
+    restart: unless-stopped
+
+  db:
+    image: postgres:16-alpine
+    container_name: story_db_prod
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    env_file:
+      - .env.prod
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - story_network
+    restart: unless-stopped
+
+  rabbitmq:
+    image: rabbitmq:3-alpine
+    container_name: story_rabbitmq_prod
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - story_network
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    container_name: story_redis_prod
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - story_network
+    restart: unless-stopped
+
+  ollama:
+    image: ollama/ollama
+    container_name: story_ollama_prod
+    volumes:
+      - ollama_data:/root/.ollama
+    deploy:
+      resources:
+        limits:
+          memory: 8G
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    networks:
+      - story_network
+    restart: unless-stopped
+
+  ollama_init:
+    image: curlimages/curl:latest
+    container_name: story_ollama_init_prod
+    depends_on:
+      ollama:
+        condition: service_healthy
+    entrypoint: >
+      sh -c '
+        echo "Waiting for Ollama API..."
+        until curl -s http://ollama:11434/api/tags > /dev/null 2>&1; do
+          sleep 2
+        done
+        echo "Pulling model ${OLLAMA_MODEL:-llama3.2:3b}..."
+        curl -X POST http://ollama:11434/api/pull -d "{\"name\": \"${OLLAMA_MODEL:-llama3.2:3b}\"}"
+        echo "Model ready!"
+      '
+    env_file:
+      - .env.prod
+    networks:
+      - story_network
+
+volumes:
+  postgres_data:
+  rabbitmq_data:
+  ollama_data:
+  static_volume:
+
+networks:
+  story_network:
+    driver: bridge

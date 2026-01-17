@@ -1,0 +1,62 @@
+# Production Dockerfile for Django application
+# Multi-stage build for smaller final image
+
+# Stage 1: Build dependencies
+FROM python:3.13-slim as builder
+
+WORKDIR /app
+
+# Install build dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    libpq-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy requirements and build wheels
+COPY requirements/ requirements/
+RUN pip wheel --no-cache-dir --wheel-dir /app/wheels -r requirements/base.txt
+
+# Stage 2: Production image
+FROM python:3.13-slim
+
+# Set environment variables
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PYTHONPATH=/app
+
+# Create non-root user for security
+RUN addgroup --system django && adduser --system --group django
+
+WORKDIR /app
+
+# Install runtime dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libpq5 \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy and install wheels from builder
+COPY --from=builder /app/wheels /wheels
+RUN pip install --no-cache /wheels/* && rm -rf /wheels
+
+# Copy application code
+COPY --chown=django:django . .
+
+# Collect static files
+RUN python manage.py collectstatic --noinput
+
+# Create directory for static files
+RUN mkdir -p /app/staticfiles && chown -R django:django /app/staticfiles
+
+# Switch to non-root user
+USER django
+
+# Expose port
+EXPOSE 8000
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
+    CMD curl -f http://localhost:8000/health/ || exit 1
+
+# Run Gunicorn
+CMD ["gunicorn", "--bind", "0.0.0.0:8000", "--workers", "4", "--timeout", "120", "--max-requests", "1000", "--max-requests-jitter", "50", "config.wsgi:application"]
