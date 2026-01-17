@@ -24,6 +24,13 @@ else:
     print('Superuser already exists')
 "
 
-# Start server
-echo "Starting Django development server..."
-exec python manage.py runserver 0.0.0.0:8000
+# Start the service
+# If no arguments passed, start Django development server
+# Otherwise, run the passed command (e.g., celery worker)
+if [ $# -eq 0 ]; then
+    echo "Starting Django development server..."
+    exec python manage.py runserver 0.0.0.0:8000
+else
+    echo "Running command: $@"
+    exec "$@"
+fi

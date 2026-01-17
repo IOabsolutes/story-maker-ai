@@ -15,7 +15,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Copy lock file and export to requirements format for wheel building
 COPY pyproject.toml uv.lock ./
-RUN uv export --frozen --no-dev > requirements.lock \
+RUN uv export --frozen --no-dev --no-emit-project > requirements.lock \
     && pip wheel --no-cache-dir --wheel-dir /app/wheels -r requirements.lock
 
 # Stage 2: Production image
