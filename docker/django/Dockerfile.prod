@@ -6,15 +6,17 @@ FROM python:3.13-slim as builder
 
 WORKDIR /app
 
-# Install build dependencies
+# Install build dependencies and uv
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     libpq-dev \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    && pip install --no-cache-dir uv
 
-# Copy requirements and build wheels
-COPY requirements/ requirements/
-RUN pip wheel --no-cache-dir --wheel-dir /app/wheels -r requirements/base.txt
+# Copy lock file and export to requirements format for wheel building
+COPY pyproject.toml uv.lock ./
+RUN uv export --frozen --no-dev > requirements.lock \
+    && pip wheel --no-cache-dir --wheel-dir /app/wheels -r requirements.lock
 
 # Stage 2: Production image
 FROM python:3.13-slim
