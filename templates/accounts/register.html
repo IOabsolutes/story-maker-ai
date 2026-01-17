@@ -7,7 +7,7 @@
     <div class="col-md-6 col-lg-4">
         <div class="card shadow">
             <div class="card-header bg-primary text-white">
-                <h4 class="mb-0">Create Account</h4>
+                <h4 class="mb-0"><i class="bi bi-person-plus me-2"></i>Create Account</h4>
             </div>
             <div class="card-body">
                 <form method="post">
@@ -22,7 +22,9 @@
                     {% endif %}
 
                     <div class="mb-3">
-                        <label for="id_username" class="form-label">Username</label>
+                        <label for="id_username" class="form-label">
+                            <i class="bi bi-person me-1"></i>Username
+                        </label>
                         <input type="text" name="username" id="id_username"
                                class="form-control {% if form.username.errors %}is-invalid{% endif %}"
                                value="{{ form.username.value|default:'' }}"
@@ -35,7 +37,9 @@
                     </div>
 
                     <div class="mb-3">
-                        <label for="id_email" class="form-label">Email</label>
+                        <label for="id_email" class="form-label">
+                            <i class="bi bi-envelope me-1"></i>Email
+                        </label>
                         <input type="email" name="email" id="id_email"
                                class="form-control {% if form.email.errors %}is-invalid{% endif %}"
                                value="{{ form.email.value|default:'' }}"
@@ -48,7 +52,9 @@
                     </div>
 
                     <div class="mb-3">
-                        <label for="id_password1" class="form-label">Password</label>
+                        <label for="id_password1" class="form-label">
+                            <i class="bi bi-lock me-1"></i>Password
+                        </label>
                         <input type="password" name="password1" id="id_password1"
                                class="form-control {% if form.password1.errors %}is-invalid{% endif %}"
                                required>
@@ -60,7 +66,9 @@
                     </div>
 
                     <div class="mb-3">
-                        <label for="id_password2" class="form-label">Confirm Password</label>
+                        <label for="id_password2" class="form-label">
+                            <i class="bi bi-lock-fill me-1"></i>Confirm Password
+                        </label>
                         <input type="password" name="password2" id="id_password2"
                                class="form-control {% if form.password2.errors %}is-invalid{% endif %}"
                                required>
@@ -71,7 +79,9 @@
                         {% endif %}
                     </div>
 
-                    <button type="submit" class="btn btn-primary w-100">Register</button>
+                    <button type="submit" class="btn btn-primary w-100">
+                        <i class="bi bi-person-plus me-1"></i>Register
+                    </button>
                 </form>
             </div>
             <div class="card-footer text-center">

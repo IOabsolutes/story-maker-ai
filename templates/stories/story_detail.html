@@ -1,45 +1,91 @@
 {% extends 'base.html' %}
+{% load static %}
 
 {% block title %}{{ story.title }} - Story Generator{% endblock %}
 
 {% block content %}
-<div class="row">
+<div class="row" id="story-container"
+     data-story-id="{{ story.id }}"
+     data-is-generating="{{ is_generating|yesno:'true,false' }}"
+     data-task-id="{{ task_id|default:'' }}">
     <div class="col-lg-8 mx-auto">
         <!-- Story Header -->
         <div class="card shadow mb-4">
-            <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
-                <h4 class="mb-0">{{ story.title }}</h4>
-                <div>
-                    {% if story.status == 'in_progress' %}
-                        <span class="badge bg-warning text-dark">In Progress</span>
-                    {% elif story.status == 'completed' %}
-                        <span class="badge bg-success">Completed</span>
-                    {% else %}
-                        <span class="badge bg-secondary">Cancelled</span>
-                    {% endif %}
+            <div class="card-header bg-primary text-white">
+                <div class="d-flex justify-content-between align-items-center">
+                    <h4 class="mb-0">
+                        <i class="bi bi-book me-2"></i>{{ story.title }}
+                    </h4>
+                    <div>
+                        {% if story.status == 'in_progress' %}
+                            <span class="badge bg-light text-primary">
+                                <i class="bi bi-pencil-square me-1"></i>In Progress
+                            </span>
+                        {% elif story.status == 'completed' %}
+                            <span class="badge bg-success">
+                                <i class="bi bi-check-circle me-1"></i>Completed
+                            </span>
+                        {% else %}
+                            <span class="badge bg-secondary">
+                                <i class="bi bi-x-circle me-1"></i>Cancelled
+                            </span>
+                        {% endif %}
+                    </div>
                 </div>
             </div>
             <div class="card-body">
                 <p class="text-muted mb-2">
-                    <strong>Premise:</strong> {{ story.premise }}
+                    <i class="bi bi-quote me-1"></i><em>{{ story.premise }}</em>
                 </p>
-                <p class="text-muted mb-0">
-                    <small>
-                        Language: {{ story.get_language_display }}
-                        &middot;
-                        {{ story.chapter_count }}/{{ story.max_chapters }} chapters
-                        &middot;
-                        Created: {{ story.created_at|date:"M d, Y H:i" }}
-                    </small>
-                </p>
+                <div class="d-flex flex-wrap gap-3 text-muted small">
+                    <span><i class="bi bi-translate me-1"></i>{{ story.get_language_display }}</span>
+                    <span><i class="bi bi-layers me-1"></i>{{ story.chapter_count }}/{{ story.max_chapters }} chapters</span>
+                    <span><i class="bi bi-calendar me-1"></i>{{ story.created_at|date:"M d, Y H:i" }}</span>
+                </div>
             </div>
         </div>
 
+        <!-- Generation Progress (shown when generating) -->
+        {% if is_generating %}
+        <div class="card shadow mb-4 border-primary" id="generation-progress">
+            <div class="card-body">
+                <div class="d-flex align-items-center mb-3">
+                    <div class="spinner-border spinner-border-sm text-primary me-2" role="status">
+                        <span class="visually-hidden">Loading...</span>
+                    </div>
+                    <span id="status-text">Generating chapter...</span>
+                </div>
+                <div class="progress" style="height: 10px;">
+                    <div class="progress-bar progress-bar-striped progress-bar-animated"
+                         role="progressbar" style="width: 10%;" id="progress-bar"></div>
+                </div>
+                <small class="text-muted mt-2 d-block" id="elapsed-time">Elapsed: 0s</small>
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- Story Completed Message -->
+        {% if story.status == 'completed' %}
+        <div class="alert alert-success shadow-sm mb-4" role="alert">
+            <h5 class="alert-heading">
+                <i class="bi bi-trophy me-2"></i>Story Completed!
+            </h5>
+            <p class="mb-0">Congratulations! Your story has reached its conclusion. You can start a new story or restart this one.</p>
+        </div>
+        {% endif %}
+
         <!-- Chapters -->
         {% for chapter in chapters %}
-            <div class="card shadow mb-3">
-                <div class="card-header">
-                    <h5 class="mb-0">Chapter {{ chapter.chapter_number }}</h5>
+            <div class="card shadow mb-3 chapter-card {% if chapter.is_final %}final{% endif %}">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0">
+                        <i class="bi bi-bookmark me-2"></i>Chapter {{ chapter.chapter_number }}
+                    </h5>
+                    {% if chapter.is_final %}
+                        <span class="badge bg-success">
+                            <i class="bi bi-flag me-1"></i>Final Chapter
+                        </span>
+                    {% endif %}
                 </div>
                 <div class="card-body">
                     {% if chapter.is_generated %}
@@ -47,21 +93,39 @@
                             {{ chapter.content|linebreaks }}
                         </div>
 
-                        {% if chapter.choices and not chapter.selected_choice and not chapter.is_final %}
+                        {% if chapter.choices and not chapter.selected_choice and not chapter.is_final and story.can_continue %}
                             <hr>
-                            <h6>What happens next?</h6>
-                            <div class="d-grid gap-2">
-                                {% for choice in chapter.choices %}
-                                    <button class="btn btn-outline-primary text-start choice-btn"
-                                            data-choice="{{ choice }}">
-                                        {{ forloop.counter }}. {{ choice }}
-                                    </button>
-                                {% endfor %}
-                            </div>
+                            <h6 class="mb-3">
+                                <i class="bi bi-signpost-2 me-2"></i>What happens next?
+                            </h6>
+                            <form method="post" action="{% url 'stories:chapter_choose' chapter.id %}">
+                                {% csrf_token %}
+                                <div class="d-grid gap-2 mb-3">
+                                    {% for choice in chapter.choices %}
+                                        <button type="submit" name="selected_choice" value="{{ choice }}"
+                                                class="btn btn-outline-primary text-start choice-btn">
+                                            <i class="bi bi-arrow-right-circle me-2"></i>{{ choice }}
+                                        </button>
+                                    {% endfor %}
+                                </div>
+                                <div class="mt-3">
+                                    <label class="form-label text-muted small">
+                                        <i class="bi bi-pencil me-1"></i>Or write your own continuation:
+                                    </label>
+                                    <div class="input-group">
+                                        <input type="text" name="user_input" class="form-control"
+                                               placeholder="Enter your own choice..." maxlength="500">
+                                        <button type="submit" class="btn btn-primary">
+                                            <i class="bi bi-send me-1"></i>Send
+                                        </button>
+                                    </div>
+                                </div>
+                            </form>
                         {% elif chapter.selected_choice %}
                             <hr>
                             <p class="text-muted mb-0">
-                                <strong>Chosen:</strong> {{ chapter.selected_choice }}
+                                <i class="bi bi-check-circle text-success me-2"></i>
+                                <strong>Your choice:</strong> {{ chapter.selected_choice }}
                             </p>
                         {% endif %}
                     {% else %}
@@ -77,42 +141,35 @@
             </div>
         {% empty %}
             <div class="card shadow">
-                <div class="card-body text-center py-4">
-                    <div class="spinner-border text-primary mb-3" role="status">
+                <div class="card-body text-center py-5">
+                    <div class="spinner-border text-primary mb-3" role="status" style="width: 3rem; height: 3rem;">
                         <span class="visually-hidden">Loading...</span>
                     </div>
-                    <p class="text-muted mb-0">Generating the first chapter...</p>
+                    <h5 class="text-muted">Generating the first chapter...</h5>
+                    <p class="text-muted small mb-0">This may take a moment. The page will refresh automatically.</p>
                 </div>
             </div>
         {% endfor %}
 
         <!-- Story Controls -->
-        {% if story.status == 'in_progress' %}
-            <div class="card shadow mt-4">
-                <div class="card-body d-flex justify-content-between">
-                    {% if story.chapter_count > 1 %}
-                        <button class="btn btn-outline-secondary" id="rollback-btn">
-                            Rollback Last Chapter
-                        </button>
-                    {% else %}
-                        <div></div>
-                    {% endif %}
-                    <button class="btn btn-outline-danger" id="finish-btn">
-                        Finish Story
-                    </button>
-                </div>
-            </div>
-        {% endif %}
-
-        <div class="text-center mt-4">
-            <a href="{% url 'stories:home' %}" class="btn btn-link">
-                &larr; Back to Stories
+        <div class="d-flex justify-content-between align-items-center mt-4 mb-4">
+            <a href="{% url 'stories:home' %}" class="btn btn-outline-secondary">
+                <i class="bi bi-arrow-left me-1"></i>Back to Stories
             </a>
+            {% if story.status == 'in_progress' %}
+                <form method="post" action="{% url 'stories:story_restart' story.id %}"
+                      onsubmit="return confirm('This will delete all chapters and start over. Are you sure?');">
+                    {% csrf_token %}
+                    <button type="submit" class="btn btn-outline-warning">
+                        <i class="bi bi-arrow-clockwise me-1"></i>Restart Story
+                    </button>
+                </form>
+            {% endif %}
         </div>
     </div>
 </div>
 {% endblock %}
 
 {% block extra_js %}
-<script src="{% load static %}{% static 'js/polling.js' %}"></script>
+<script src="{% static 'js/polling.js' %}"></script>
 {% endblock %}
