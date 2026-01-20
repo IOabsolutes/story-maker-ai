@@ -116,19 +116,34 @@ const LoadingButton = {
 
 /**
  * Polling module for chapter generation status
+ *
+ * Features:
+ * - Pre-polling validation (empty taskId check)
+ * - Error classification (terminal vs retryable)
+ * - Exponential backoff with jitter
+ * - Maximum attempts and total timeout limits
+ * - AbortController for cleanup on page unload
  */
 const ChapterPolling = (function() {
     // Configuration
     const CONFIG = {
-        POLL_INTERVAL: 5000,  // 5 seconds
-        MAX_POLLS: 60,        // 5 minutes max (60 * 5s = 300s)
+        MAX_ATTEMPTS: 20,           // Maximum polling attempts
+        TOTAL_TIMEOUT_MS: 300000,   // 5 minutes total timeout
+        INITIAL_DELAY_MS: 1000,     // 1 second initial delay
+        MAX_DELAY_MS: 32000,        // 32 seconds max delay
+        BACKOFF_MULTIPLIER: 2,      // Exponential backoff multiplier
+        JITTER_MAX_MS: 1000,        // Random jitter 0-1000ms
     };
 
+    // Terminal HTTP status codes (stop polling immediately)
+    const TERMINAL_STATUS_CODES = [400, 401, 403, 404, 422];
+
     // State
-    let pollCount = 0;
+    let attemptCount = 0;
     let pollTimer = null;
     let startTime = null;
     let elapsedTimer = null;
+    let abortController = null;
 
     // DOM elements (cached)
     let container = null;
@@ -140,13 +155,11 @@ const ChapterPolling = (function() {
      * Get CSRF token from meta tag or cookie
      */
     function getCSRFToken() {
-        // Try meta tag first
         const metaTag = document.querySelector('meta[name="csrf-token"]');
         if (metaTag) {
             return metaTag.content;
         }
 
-        // Fall back to cookie
         const cookies = document.cookie.split(';');
         for (let cookie of cookies) {
             const [name, value] = cookie.trim().split('=');
@@ -155,6 +168,35 @@ const ChapterPolling = (function() {
             }
         }
         return null;
+    }
+
+    /**
+     * Calculate delay with exponential backoff and jitter
+     * Formula: min(2^attempt * 1000 + jitter, maxDelay)
+     * @param {number} attempt - Current attempt number (0-based)
+     * @returns {number} Delay in milliseconds
+     */
+    function calculateDelay(attempt) {
+        const exponentialDelay = Math.pow(CONFIG.BACKOFF_MULTIPLIER, attempt) * CONFIG.INITIAL_DELAY_MS;
+        const jitter = Math.floor(Math.random() * CONFIG.JITTER_MAX_MS);
+        return Math.min(exponentialDelay + jitter, CONFIG.MAX_DELAY_MS);
+    }
+
+    /**
+     * Check if HTTP status code is terminal (should stop polling)
+     * @param {number} statusCode - HTTP status code
+     * @returns {boolean}
+     */
+    function isTerminalStatusCode(statusCode) {
+        return TERMINAL_STATUS_CODES.includes(statusCode);
+    }
+
+    /**
+     * Check if total timeout has been exceeded
+     * @returns {boolean}
+     */
+    function isTimeoutExceeded() {
+        return (Date.now() - startTime) >= CONFIG.TOTAL_TIMEOUT_MS;
     }
 
     /**
@@ -167,8 +209,15 @@ const ChapterPolling = (function() {
         const isGenerating = container.dataset.isGenerating === 'true';
         const taskId = container.dataset.taskId;
 
-        if (!isGenerating || !taskId) {
+        // Pre-polling validation: check taskId before starting
+        if (!isGenerating) {
             console.log('Polling: No active generation task');
+            return;
+        }
+
+        if (!taskId || taskId.trim() === '' || taskId === 'None' || taskId === 'null') {
+            console.error('Polling: Invalid or empty task ID');
+            Toast.error('Generation task not found. Please try again.');
             return;
         }
 
@@ -179,10 +228,27 @@ const ChapterPolling = (function() {
         statusText = document.getElementById('status-text');
         elapsedTimeEl = document.getElementById('elapsed-time');
 
+        // Create AbortController for cleanup
+        abortController = new AbortController();
+
+        // Register cleanup on page unload
+        window.addEventListener('beforeunload', cleanup);
+
         // Start polling
         startTime = Date.now();
         startElapsedTimer();
         poll(taskId);
+    }
+
+    /**
+     * Cleanup function - stop all timers and abort pending requests
+     */
+    function cleanup() {
+        stopTimers();
+        if (abortController) {
+            abortController.abort();
+            abortController = null;
+        }
     }
 
     /**
@@ -231,16 +297,42 @@ const ChapterPolling = (function() {
     /**
      * Update status text
      * @param {string} text - Status message
-     * @param {boolean} isSuccess - Whether this is a success state
+     * @param {string} state - 'normal', 'success', or 'error'
      */
-    function updateStatus(text, isSuccess = false) {
+    function updateStatus(text, state = 'normal') {
         if (statusText) {
             statusText.textContent = text;
         }
-        if (isSuccess && progressBar) {
-            progressBar.classList.remove('progress-bar-animated', 'progress-bar-striped');
-            progressBar.classList.add('bg-success');
+        if (progressBar) {
+            progressBar.classList.remove('bg-success', 'bg-danger');
+            if (state === 'success') {
+                progressBar.classList.remove('progress-bar-animated', 'progress-bar-striped');
+                progressBar.classList.add('bg-success');
+            } else if (state === 'error') {
+                progressBar.classList.remove('progress-bar-animated', 'progress-bar-striped');
+                progressBar.classList.add('bg-danger');
+            }
         }
+    }
+
+    /**
+     * Handle terminal error - stop polling and show error message
+     * @param {string} message - User-friendly error message
+     */
+    function handleTerminalError(message) {
+        cleanup();
+        updateProgress(0);
+        updateStatus(message, 'error');
+        Toast.error(message);
+    }
+
+    /**
+     * Handle timeout - stop polling and show timeout message
+     */
+    function handleTimeout() {
+        cleanup();
+        updateStatus('This is taking longer than expected. The server may be busy.', 'normal');
+        Toast.warning('Request timed out. Please try again later.');
     }
 
     /**
@@ -248,18 +340,31 @@ const ChapterPolling = (function() {
      * @param {string} taskId - The Celery task ID
      */
     async function poll(taskId) {
-        if (pollCount >= CONFIG.MAX_POLLS) {
-            stopTimers();
-            updateStatus('Generation is taking longer than expected. Please refresh the page.');
-            Toast.warning('Generation timed out. Please refresh the page to check status.');
+        // Check attempt limit
+        if (attemptCount >= CONFIG.MAX_ATTEMPTS) {
+            console.log('Polling: Max attempts reached');
+            handleTimeout();
             return;
         }
 
-        pollCount++;
+        // Check total timeout
+        if (isTimeoutExceeded()) {
+            console.log('Polling: Total timeout exceeded');
+            handleTimeout();
+            return;
+        }
 
-        // Update progress (10% base + 1.5% per poll, max 90%)
-        const progress = Math.min(10 + (pollCount * 1.5), 90);
+        attemptCount++;
+        console.log(`Polling: Attempt ${attemptCount}/${CONFIG.MAX_ATTEMPTS}`);
+
+        // Update progress (10% base + 4% per attempt, max 90%)
+        const progress = Math.min(10 + (attemptCount * 4), 90);
         updateProgress(progress);
+
+        // Show "still working" message for long waits
+        if (attemptCount > 5) {
+            updateStatus('Still working, please wait...');
+        }
 
         try {
             const csrfToken = getCSRFToken();
@@ -272,16 +377,37 @@ const ChapterPolling = (function() {
                     'X-CSRFToken': csrfToken,
                 },
                 credentials: 'same-origin',
+                signal: abortController ? abortController.signal : undefined,
             });
 
+            // Handle HTTP errors
             if (!response.ok) {
-                if (response.status === 404) {
-                    // Task not found - might have been cleaned up
-                    console.log('Polling: Task not found, reloading page');
-                    location.reload();
+                const statusCode = response.status;
+                console.log(`Polling: HTTP error ${statusCode}`);
+
+                // Terminal errors - stop polling immediately
+                if (isTerminalStatusCode(statusCode)) {
+                    if (statusCode === 404) {
+                        handleTerminalError('Task not found. Please start a new generation.');
+                    } else if (statusCode === 401 || statusCode === 403) {
+                        handleTerminalError('Access denied. Please log in and try again.');
+                    } else {
+                        handleTerminalError(`Request failed (${statusCode}). Please try again.`);
+                    }
                     return;
                 }
-                throw new Error(`HTTP error: ${response.status}`);
+
+                // Retryable errors (5xx, 429) - use backoff
+                if (statusCode === 429) {
+                    // Honor Retry-After header if present
+                    const retryAfter = response.headers.get('Retry-After');
+                    const delay = retryAfter ? parseInt(retryAfter, 10) * 1000 : calculateDelay(attemptCount);
+                    schedulePoll(taskId, delay);
+                } else {
+                    // 5xx errors - exponential backoff
+                    schedulePoll(taskId, calculateDelay(attemptCount));
+                }
+                return;
             }
 
             const data = await response.json();
@@ -290,18 +416,18 @@ const ChapterPolling = (function() {
             switch (data.status) {
                 case 'pending':
                     updateStatus('Task queued, waiting to start...');
-                    schedulePoll(taskId);
+                    schedulePoll(taskId, calculateDelay(attemptCount));
                     break;
 
                 case 'processing':
                     updateStatus('Generating chapter content...');
-                    schedulePoll(taskId);
+                    schedulePoll(taskId, calculateDelay(attemptCount));
                     break;
 
                 case 'completed':
-                    stopTimers();
+                    cleanup();
                     updateProgress(100);
-                    updateStatus('Chapter generated! Reloading...', true);
+                    updateStatus('Chapter generated! Reloading...', 'success');
                     Toast.success('Chapter generated successfully!');
                     setTimeout(function() {
                         location.reload();
@@ -309,48 +435,51 @@ const ChapterPolling = (function() {
                     break;
 
                 case 'failed':
-                    stopTimers();
-                    updateStatus('Generation failed.');
-                    updateProgress(0);
-                    if (progressBar) {
-                        progressBar.classList.remove('progress-bar-animated', 'progress-bar-striped');
-                        progressBar.classList.add('bg-danger');
-                    }
                     const errorMsg = data.error_message || 'Unknown error occurred.';
-                    Toast.error(`Generation failed: ${errorMsg}`);
+                    handleTerminalError(`Generation failed: ${errorMsg}`);
                     break;
 
                 default:
                     console.warn('Polling: Unknown status', data.status);
-                    schedulePoll(taskId);
+                    // Treat unknown as pending
+                    schedulePoll(taskId, calculateDelay(attemptCount));
             }
 
         } catch (error) {
+            // Ignore abort errors (page unload)
+            if (error.name === 'AbortError') {
+                console.log('Polling: Aborted');
+                return;
+            }
+
             console.error('Polling error:', error);
 
-            // Continue polling on network errors (might be temporary)
-            if (pollCount < CONFIG.MAX_POLLS) {
-                schedulePoll(taskId);
+            // Network errors are retryable
+            if (attemptCount < CONFIG.MAX_ATTEMPTS && !isTimeoutExceeded()) {
+                updateStatus('Connection issue, retrying...');
+                schedulePoll(taskId, calculateDelay(attemptCount));
             } else {
-                stopTimers();
-                Toast.error('Connection error. Please refresh the page.');
+                handleTimeout();
             }
         }
     }
 
     /**
-     * Schedule next poll
+     * Schedule next poll with specified delay
      * @param {string} taskId - The task ID
+     * @param {number} delay - Delay in milliseconds
      */
-    function schedulePoll(taskId) {
+    function schedulePoll(taskId, delay) {
+        console.log(`Polling: Next attempt in ${delay}ms`);
         pollTimer = setTimeout(function() {
             poll(taskId);
-        }, CONFIG.POLL_INTERVAL);
+        }, delay);
     }
 
     // Public API
     return {
         init: init,
+        cleanup: cleanup,
     };
 })();
 

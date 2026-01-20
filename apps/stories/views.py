@@ -8,6 +8,8 @@ from django.shortcuts import get_object_or_404, redirect
 from django.views import View
 from django.views.generic import DetailView, ListView
 
+from common.celery_utils import safe_delay
+
 from .models import Chapter, Story, StoryStatus, TaskStatus, TaskStatusChoice
 from .services.story_service import chapter_select_choice, story_create
 from .tasks import generate_chapter
@@ -65,20 +67,29 @@ class HomeView(ListView):
             max_chapters=max_chapters,
         )
 
-        # Start generation
-        task = generate_chapter.delay(
+        # Start generation with broker error handling
+        result = safe_delay(
+            generate_chapter,
             story_id=str(story.id),
             chapter_number=1,
         )
 
-        # Create task status
-        TaskStatus.objects.create(
-            id=task.id,
-            story=story,
-            chapter_number=1,
-        )
+        if result.success:
+            TaskStatus.objects.create(
+                id=result.task_id,
+                story=story,
+                chapter_number=1,
+            )
+            messages.success(
+                request, f'Story "{title}" created! Generating first chapter...'
+            )
+        else:
+            messages.warning(
+                request,
+                f'Story "{title}" created, but generation service is temporarily '
+                "unavailable. Please refresh the page to retry.",
+            )
 
-        messages.success(request, f'Story "{title}" created! Generating first chapter...')
         return redirect("stories:story_detail", story_id=story.id)
 
 
@@ -163,20 +174,32 @@ class StoryRestartView(LoginRequiredMixin, View):
             story.status = StoryStatus.IN_PROGRESS
             story.save(update_fields=["status", "updated_at"])
 
-            # Start new generation
-            task = generate_chapter.delay(
-                story_id=str(story.id),
-                chapter_number=1,
-            )
+        # Queue task AFTER transaction commits to avoid race condition
+        # See: https://testdriven.io/blog/celery-database-transactions/
+        story_id_str = str(story.id)
 
-            # Create task status
+        result = safe_delay(
+            generate_chapter,
+            story_id=story_id_str,
+            chapter_number=1,
+        )
+
+        if result.success:
             TaskStatus.objects.create(
-                id=task.id,
-                story=story,
+                id=result.task_id,
+                story_id=story_id_str,
                 chapter_number=1,
             )
+            messages.success(
+                request, "Story has been restarted. Generating first chapter..."
+            )
+        else:
+            messages.warning(
+                request,
+                "Story has been reset, but generation service is temporarily "
+                "unavailable. Please refresh the page to retry.",
+            )
 
-        messages.success(request, "Story has been restarted. Generating first chapter...")
         return redirect("stories:story_detail", story_id=story.id)
 
 
@@ -226,20 +249,27 @@ class ChapterChooseView(LoginRequiredMixin, View):
         # Save choice
         chapter_select_choice(chapter=chapter, choice=choice)
 
-        # Start generation of next chapter
+        # Start generation of next chapter with broker error handling
         next_chapter_number = chapter.chapter_number + 1
-        task = generate_chapter.delay(
+        result = safe_delay(
+            generate_chapter,
             story_id=str(story.id),
             chapter_number=next_chapter_number,
             selected_choice=choice,
         )
 
-        # Create task status
-        TaskStatus.objects.create(
-            id=task.id,
-            story=story,
-            chapter_number=next_chapter_number,
-        )
+        if result.success:
+            TaskStatus.objects.create(
+                id=result.task_id,
+                story=story,
+                chapter_number=next_chapter_number,
+            )
+            messages.success(request, f"Generating chapter {next_chapter_number}...")
+        else:
+            messages.warning(
+                request,
+                "Choice saved, but generation service is temporarily unavailable. "
+                "Please refresh the page to retry.",
+            )
 
-        messages.success(request, f"Generating chapter {next_chapter_number}...")
         return redirect("stories:story_detail", story_id=story.id)

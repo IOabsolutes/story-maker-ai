@@ -56,3 +56,11 @@ class StoryGenerationError(ServiceException):
 
     default_detail = "Не удалось сгенерировать главу истории"
     default_code = "generation_error"
+
+
+class BrokerUnavailableError(ServiceException):
+    """Exception for Celery broker unavailability."""
+
+    status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+    default_detail = "Сервис временно недоступен. Попробуйте позже."
+    default_code = "broker_unavailable"

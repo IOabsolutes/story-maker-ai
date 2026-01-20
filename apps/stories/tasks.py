@@ -6,6 +6,7 @@ from typing import Any
 
 from celery import shared_task
 from celery.exceptions import SoftTimeLimitExceeded
+from django.db import transaction
 
 from apps.stories.models import Chapter, Story, TaskStatus
 from apps.stories.selectors import chapter_list
@@ -96,23 +97,26 @@ def generate_chapter(
         # 7. Parse response
         parsed = prompt_builder.parse_response(response.text)
 
-        # 8. Update Chapter
-        chapter.content = parsed["content"]
-        chapter.choices = parsed["choices"]
-        chapter.is_generated = True
-        chapter.save(update_fields=["content", "choices", "is_generated"])
+        # 8-10. Update Chapter, TaskStatus, and Story atomically
+        # See: https://www.vintasoftware.com/blog/guide-django-celery-tasks
+        with transaction.atomic():
+            chapter.content = parsed["content"]
+            chapter.choices = parsed["choices"]
+            chapter.is_generated = True
+            chapter.save(update_fields=["content", "choices", "is_generated"])
 
+            task_status.mark_completed()
+
+            # Check if final chapter -> complete story
+            if chapter_number >= story.max_chapters:
+                story_complete(story=story)
+
+        # Log AFTER transaction commits (side effects outside atomic block)
         logger.info(
             f"Chapter {chapter_number} generated successfully "
             f"(content: {len(parsed['content'])} chars, choices: {len(parsed['choices'])})"
         )
-
-        # 9. Update TaskStatus
-        task_status.mark_completed()
-
-        # 10. Check if final chapter -> complete story
         if chapter_number >= story.max_chapters:
-            story_complete(story=story)
             logger.info(f"Story {story_id} completed (final chapter {chapter_number})")
 
         return {

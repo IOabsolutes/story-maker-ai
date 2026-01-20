@@ -30,6 +30,8 @@ main {
 .chapter-content {
     line-height: 1.8;
     white-space: pre-wrap;
+    word-wrap: break-word;      /* Legacy browsers */
+    overflow-wrap: break-word;  /* Modern standard */
     font-size: 1.1rem;
     color: #333;
 }
