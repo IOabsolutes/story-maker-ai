@@ -1,12 +1,9 @@
-"""URL configuration for the Interactive Story Generator project."""
-
 from django.contrib import admin
 from django.http import JsonResponse
 from django.urls import include, path
 
 
 def health_check(request):
-    """Health check endpoint for Docker."""
     return JsonResponse({"status": "ok"})
 
 

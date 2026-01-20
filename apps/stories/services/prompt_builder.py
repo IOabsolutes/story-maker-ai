@@ -1,6 +1,7 @@
 """Prompt builder for story generation."""
 
 import logging
+import re
 from typing import Any
 
 from apps.stories.models import Chapter, Story
@@ -19,10 +20,12 @@ class PromptBuilder:
 1. Пиши живо и увлекательно, используя богатый язык
 2. Каждая глава должна быть 300-500 слов
 3. Заканчивай главу интригующим моментом
-4. Предлагай ровно 3 варианта продолжения
+4. ОБЯЗАТЕЛЬНО предлагай ровно 3 варианта продолжения в конце
 5. Не используй ненормативную лексику и откровенный контент
 
-Формат ответа:
+ВАЖНО: Варианты продолжения ОБЯЗАТЕЛЬНЫ. Без них ответ неполный.
+
+Формат ответа (СТРОГО соблюдай):
 [CHAPTER]
 Текст главы здесь...
 [/CHAPTER]
@@ -38,10 +41,12 @@ Rules:
 1. Write vividly and engagingly, using rich language
 2. Each chapter should be 300-500 words
 3. End the chapter with an intriguing moment
-4. Provide exactly 3 continuation options
+4. ALWAYS provide exactly 3 continuation options at the end
 5. No profanity or explicit content
 
-Response format:
+IMPORTANT: Continuation options are MANDATORY. Without them the response is incomplete.
+
+Response format (STRICTLY follow):
 [CHAPTER]
 Chapter text here...
 [/CHAPTER]
@@ -164,7 +169,6 @@ Final story text here...
         Returns:
             Dict with 'content' and 'choices' keys
         """
-        # Placeholder implementation - will be completed in Stage 2
         content = ""
         choices: list[str] = []
 
@@ -175,9 +179,13 @@ Final story text here...
             content = response[start:end].strip()
 
         # Extract choices
-        if "[CHOICES]" in response and "[/CHOICES]" in response:
+        if "[CHOICES]" in response:
+            # Handle both [/CHOICES] and missing closing tag
             start = response.find("[CHOICES]") + len("[CHOICES]")
-            end = response.find("[/CHOICES]")
+            if "[/CHOICES]" in response:
+                end = response.find("[/CHOICES]")
+            else:
+                end = len(response)
             choices_text = response[start:end].strip()
 
             for line in choices_text.split("\n"):
@@ -188,11 +196,110 @@ Final story text here...
                     if choice:
                         choices.append(choice)
 
-        # Fallback if parsing fails
+        # Fallback if [CHAPTER] parsing fails - use response but REMOVE [CHOICES] section
         if not content:
             content = response.strip()
+            if "[CHOICES]" in content:
+                choices_start = content.find("[CHOICES]")
+                if "[/CHOICES]" in content:
+                    choices_end = content.find("[/CHOICES]") + len("[/CHOICES]")
+                    content = content[:choices_start].strip() + content[choices_end:].strip()
+                else:
+                    content = content[:choices_start].strip()
+
+        content = content.replace("[CHAPTER]", "").replace("[/CHAPTER]", "")
+        content = content.replace("[CHOICES]", "").replace("[/CHOICES]", "")
+        content = content.strip()
+
+        # Also clean "Как вы хотели бы продолжить историю?" and similar phrases
+        # that sometimes appear before choices
+        for phrase in [
+            "Как вы хотели бы продолжить историю?",
+            "How would you like to continue the story?",
+            "What happens next?",
+            "Что будет дальше?",
+        ]:
+            content = content.replace(phrase, "").strip()
+
+        # Fallback: extract choices from content when AI doesn't use tags
+        if not choices and content:
+            choices, content = self._extract_choices_fallback(content)
 
         return {
             "content": content,
             "choices": choices[:3],  # Max 3 choices
         }
+
+    def _extract_choices_fallback(self, content: str) -> tuple[list[str], str]:
+        """
+        Extract choices from content when AI doesn't use [CHOICES] tags.
+
+        Looks for numbered lists (1. xxx, 2. xxx, 3. xxx) at the end of content,
+        optionally preceded by marker phrases like "Варианты:" or "Options:".
+
+        Args:
+            content: The chapter content that may contain inline choices
+
+        Returns:
+            Tuple of (extracted choices list, cleaned content)
+        """
+        choices: list[str] = []
+
+        # Markers that typically precede choices (case-insensitive)
+        marker_patterns = [
+            r"(?:Варианты|Выберите|Выбор|Options|Choose|Choices)[\s:]*",
+            r"(?:Что (?:вы )?(?:будете|хотите) делать|What (?:will you|do you want to) do)\??\s*",
+            r"(?:Как (?:вы )?(?:хотите |желаете )?продолжить|How (?:would you like to |do you want to )?continue)\??\s*",
+        ]
+
+        # Try to find a marker followed by numbered list
+        for marker_pattern in marker_patterns:
+            # Pattern: marker + numbered list at end of content
+            full_pattern = (
+                rf"({marker_pattern})"
+                rf"(?:\n|\s)*"
+                rf"((?:\d[.)]\s*.+?(?:\n|$))+)"
+                rf"\s*$"
+            )
+            match = re.search(full_pattern, content, re.IGNORECASE | re.MULTILINE)
+            if match:
+                choices_block = match.group(2)
+                choices = self._parse_numbered_list(choices_block)
+                if choices:
+                    # Remove the entire choices section from content
+                    content = content[: match.start()].strip()
+                    return choices, content
+
+        # Fallback: look for numbered list at the very end (no marker)
+        # Must have at least 2 items to be considered choices
+        numbered_pattern = r"((?:\n\s*\d[.)]\s*.+)+)\s*$"
+        match = re.search(numbered_pattern, content)
+        if match:
+            choices_block = match.group(1)
+            potential_choices = self._parse_numbered_list(choices_block)
+            if len(potential_choices) >= 2:
+                choices = potential_choices
+                content = content[: match.start()].strip()
+                return choices, content
+
+        return choices, content
+
+    def _parse_numbered_list(self, text: str) -> list[str]:
+        """
+        Parse a numbered list from text.
+
+        Args:
+            text: Text containing numbered items (1. xxx, 2) xxx, etc.)
+
+        Returns:
+            List of extracted items without numbering
+        """
+        choices: list[str] = []
+        for line in text.strip().split("\n"):
+            line = line.strip()
+            if line and line[0].isdigit():
+                # Remove numbering (1. 2. 3. or 1) 2) 3))
+                choice = re.sub(r"^\d+[.)]\s*", "", line).strip()
+                if choice:
+                    choices.append(choice)
+        return choices

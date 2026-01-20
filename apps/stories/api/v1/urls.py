@@ -1,10 +1,3 @@
-"""URL configuration for stories API v1.
-
-RESTful URL patterns following best practices:
-- Plural nouns: /stories/, /chapters/
-- UUID path parameters
-- Nested resources limited to 2 levels
-"""
 from django.urls import path
 
 from .views import (

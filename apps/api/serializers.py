@@ -1,13 +1,9 @@
-"""Serializers for the API app."""
-
 from rest_framework import serializers
 
 from apps.stories.models import Chapter, Story, TaskStatus
 
 
 class ChapterSerializer(serializers.ModelSerializer):
-    """Serializer for Chapter model."""
-
     class Meta:
         model = Chapter
         fields = [
@@ -23,8 +19,6 @@ class ChapterSerializer(serializers.ModelSerializer):
 
 
 class StorySerializer(serializers.ModelSerializer):
-    """Serializer for Story model."""
-
     chapter_count = serializers.IntegerField(read_only=True)
     chapters = ChapterSerializer(many=True, read_only=True)
 
@@ -46,8 +40,6 @@ class StorySerializer(serializers.ModelSerializer):
 
 
 class StoryListSerializer(serializers.ModelSerializer):
-    """Lightweight serializer for Story list view."""
-
     chapter_count = serializers.IntegerField(read_only=True)
 
     class Meta:
@@ -64,8 +56,6 @@ class StoryListSerializer(serializers.ModelSerializer):
 
 
 class TaskStatusSerializer(serializers.ModelSerializer):
-    """Serializer for TaskStatus model."""
-
     class Meta:
         model = TaskStatus
         fields = [

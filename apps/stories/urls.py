@@ -1,5 +1,3 @@
-"""URL configuration for stories app."""
-
 from django.urls import path
 
 from .views import (

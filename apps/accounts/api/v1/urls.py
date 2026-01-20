@@ -1,5 +1,3 @@
-"""URL configuration for accounts API v1."""
-
 from django.urls import path
 
 from .views import CurrentUserAPIView, RegisterAPIView

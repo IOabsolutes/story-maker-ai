@@ -32,6 +32,10 @@ main {
     white-space: pre-wrap;
     word-wrap: break-word;      /* Legacy browsers */
     overflow-wrap: break-word;  /* Modern standard */
+    word-break: normal;         /* Preserve natural break points */
+    hyphens: auto;              /* Add hyphens when breaking words */
+    -webkit-hyphens: auto;      /* Safari support */
+    min-width: 0;               /* Fix for flexbox containers */
     font-size: 1.1rem;
     color: #333;
 }
@@ -136,6 +140,40 @@ textarea.form-control {
 }
 
 /* ============================================
+   Choice Options (Radio Buttons)
+   ============================================ */
+
+/* Choice option container - clickable card style */
+.choice-option {
+    cursor: pointer;
+    transition: all 0.15s ease;
+    background-color: #fff;
+}
+
+.choice-option:hover {
+    background-color: var(--bs-primary-bg-subtle, #cfe2ff);
+    border-color: var(--bs-primary, #0d6efd) !important;
+}
+
+/* Selected state */
+.choice-option:has(input:checked) {
+    background-color: var(--bs-primary-bg-subtle, #cfe2ff);
+    border-color: var(--bs-primary, #0d6efd) !important;
+}
+
+/* Make radio button more visible */
+.choice-option .form-check-input {
+    transform: scale(1.3);
+    margin-top: 0.2rem;
+}
+
+/* Label takes full width for better click area */
+.choice-option .form-check-label {
+    cursor: pointer;
+    padding-left: 0.5rem;
+}
+
+/* ============================================
    Mobile Responsiveness
    ============================================ */
 
@@ -164,6 +202,15 @@ textarea.form-control {
     .choice-btn {
         padding: 1rem;
         min-height: 52px;
+    }
+
+    /* Choice options larger on mobile */
+    .choice-option {
+        padding: 1rem !important;
+    }
+
+    .choice-option .form-check-input {
+        transform: scale(1.4);
     }
 
     /* Story list items more padding */

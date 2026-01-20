@@ -1,15 +1,9 @@
-"""Serializers for stories API v1."""
 from rest_framework import serializers
 
 from apps.stories.models import Chapter, Story
 
 
 class ChapterSerializer(serializers.ModelSerializer):
-    """Serializer for Chapter model.
-
-    Includes computed properties for frontend convenience.
-    """
-
     is_final = serializers.BooleanField(read_only=True)
     can_select_choice = serializers.BooleanField(read_only=True)
 
@@ -30,11 +24,6 @@ class ChapterSerializer(serializers.ModelSerializer):
 
 
 class StoryListSerializer(serializers.ModelSerializer):
-    """Serializer for Story list view.
-
-    Lightweight serializer without nested chapters.
-    """
-
     chapter_count = serializers.IntegerField(read_only=True)
 
     class Meta:
@@ -53,11 +42,6 @@ class StoryListSerializer(serializers.ModelSerializer):
 
 
 class StoryDetailSerializer(serializers.ModelSerializer):
-    """Serializer for Story detail view with nested chapters.
-
-    Full representation including all chapters and computed properties.
-    """
-
     chapters = ChapterSerializer(many=True, read_only=True)
     chapter_count = serializers.IntegerField(read_only=True)
     is_complete = serializers.BooleanField(read_only=True)
@@ -83,11 +67,6 @@ class StoryDetailSerializer(serializers.ModelSerializer):
 
 
 class StoryCreateSerializer(serializers.Serializer):
-    """Input serializer for creating a new story.
-
-    Validates input data before passing to service layer.
-    """
-
     title = serializers.CharField(max_length=255)
     premise = serializers.CharField()
     language = serializers.ChoiceField(choices=["ru", "en"], default="ru")
@@ -95,6 +74,4 @@ class StoryCreateSerializer(serializers.Serializer):
 
 
 class ChapterChoiceSerializer(serializers.Serializer):
-    """Input serializer for selecting a chapter choice."""
-
     choice = serializers.CharField(max_length=500)

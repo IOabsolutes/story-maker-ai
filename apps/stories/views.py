@@ -1,14 +1,16 @@
-"""Views for the stories app."""
+from typing import Any
 
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.db import transaction
-from django.http import Http404
+from django.db.models import QuerySet
+from django.http import Http404, HttpRequest, HttpResponse, HttpResponseRedirect
 from django.shortcuts import get_object_or_404, redirect
 from django.views import View
 from django.views.generic import DetailView, ListView
 
 from common.celery_utils import safe_delay
+from common.types import AuthenticatedHttpRequest
 
 from .models import Chapter, Story, StoryStatus, TaskStatus, TaskStatusChoice
 from .services.story_service import chapter_select_choice, story_create
@@ -16,20 +18,18 @@ from .tasks import generate_chapter
 
 
 class HomeView(ListView):
-    """Home page with story creation form and user's stories list."""
-
     model = Story
     template_name = "stories/home.html"
     context_object_name = "stories"
 
-    def get_queryset(self):
-        """Return stories for authenticated user only."""
+    def get_queryset(self) -> QuerySet[Story]:
         if self.request.user.is_authenticated:
             return Story.objects.filter(user=self.request.user).order_by("-created_at")
         return Story.objects.none()
 
-    def post(self, request, *args, **kwargs):
-        """Handle story creation."""
+    def post(
+        self, request: HttpRequest, *args: Any, **kwargs: Any
+    ) -> HttpResponse | HttpResponseRedirect:
         if not request.user.is_authenticated:
             return redirect("accounts:login")
 
@@ -38,8 +38,7 @@ class HomeView(ListView):
         language = request.POST.get("language", "ru")
         max_chapters_str = request.POST.get("max_chapters", "10")
 
-        # Validation
-        errors = []
+        errors: list[str] = []
         if len(title) < 10:
             errors.append("Story title must be at least 10 characters.")
         if len(premise) < 20:
@@ -94,15 +93,12 @@ class HomeView(ListView):
 
 
 class StoryDetailView(LoginRequiredMixin, DetailView):
-    """Detail view for a single story with its chapters."""
-
     model = Story
     template_name = "stories/story_detail.html"
     context_object_name = "story"
     pk_url_kwarg = "story_id"
 
-    def get_object(self, queryset=None):
-        """Get story and verify ownership."""
+    def get_object(self, queryset: QuerySet[Story] | None = None) -> Story:
         story = get_object_or_404(
             Story.objects.prefetch_related("chapters", "task_statuses"),
             pk=self.kwargs["story_id"],
@@ -111,9 +107,8 @@ class StoryDetailView(LoginRequiredMixin, DetailView):
             raise Http404("Story not found")
         return story
 
-    def get_context_data(self, **kwargs):
-        """Add chapters and generation status to context."""
-        context = super().get_context_data(**kwargs)
+    def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
+        context: dict[str, Any] = super().get_context_data(**kwargs)
         context["chapters"] = self.object.chapters.order_by("chapter_number")
 
         # Check if there's an active generation task
@@ -132,10 +127,9 @@ class StoryDetailView(LoginRequiredMixin, DetailView):
 
 
 class StoryDeleteView(LoginRequiredMixin, View):
-    """Delete a story."""
-
-    def post(self, request, story_id):
-        """Handle story deletion."""
+    def post(
+        self, request: AuthenticatedHttpRequest, story_id: str
+    ) -> HttpResponseRedirect:
         story = get_object_or_404(Story, pk=story_id)
         if story.user != request.user:
             raise Http404("Story not found")
@@ -147,10 +141,9 @@ class StoryDeleteView(LoginRequiredMixin, View):
 
 
 class StoryRestartView(LoginRequiredMixin, View):
-    """Restart a story from the beginning."""
-
-    def post(self, request, story_id):
-        """Handle story restart."""
+    def post(
+        self, request: AuthenticatedHttpRequest, story_id: str
+    ) -> HttpResponseRedirect:
         story = get_object_or_404(Story, pk=story_id)
         if story.user != request.user:
             raise Http404("Story not found")
@@ -204,10 +197,9 @@ class StoryRestartView(LoginRequiredMixin, View):
 
 
 class ChapterChooseView(LoginRequiredMixin, View):
-    """Handle user's choice for story continuation."""
-
-    def post(self, request, chapter_id):
-        """Handle choice selection."""
+    def post(
+        self, request: AuthenticatedHttpRequest, chapter_id: str
+    ) -> HttpResponseRedirect:
         chapter = get_object_or_404(
             Chapter.objects.select_related("story"),
             pk=chapter_id,

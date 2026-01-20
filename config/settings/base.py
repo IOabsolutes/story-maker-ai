@@ -1,5 +1,3 @@
-"""Base settings for the Interactive Story Generator project."""
-
 import os
 from pathlib import Path
 
